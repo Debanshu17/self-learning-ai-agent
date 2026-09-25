@@ -1,0 +1,27 @@
+# Environments
+.env
+.venv
+venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Databases
+data/
+*.db
+*.sqlite3
+chroma/
+
+# Node
+node_modules/
+dist/
+build/
+npm-debug.log
+
+# System
+.DS_Store
+Thumbs.db
