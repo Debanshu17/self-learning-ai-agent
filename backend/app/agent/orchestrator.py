@@ -7,6 +7,7 @@ from app.memory.vector_store import VectorStore
 from app.database.repositories import MemoryRepository
 from app.core.config import settings
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +22,12 @@ class AgentOrchestrator:
         self.evaluator = Evaluator(llm_provider)
         self.learner = LearningEngine(llm_provider, vector_store, db_repo)
 
-    def run(self, user_input: str) -> AgentState:
-        """Run the main agent loop for a given user input."""
+    def run_stream(self, user_input: str):
+        """Run the main agent loop as a generator yielding SSE events."""
         logger.info(f"Starting agent task for input: {user_input}")
         
         state = AgentState(user_input=user_input)
+        yield {"event": "status", "data": "retrieving"}
         
         try:
             # Phase 6 & 9: Retrieve relevant memories/lessons
@@ -34,15 +36,37 @@ class AgentOrchestrator:
                 lessons = [r['content'] for r in retrieved]
                 state.retrieved_memories = lessons
                 logger.info(f"Retrieved lessons: {lessons}")
+                yield {"event": "memory", "data": lessons}
                 
             state.status = "planning"
+            yield {"event": "status", "data": "planning"}
             
             # Phase 3: Planner
             state = self.planner.create_plan(state)
+            plan_data = [s.dict() for s in state.plan] if state.plan else []
+            yield {"event": "plan", "data": plan_data}
             
             state.status = "executing"
-            retries = 0
+            yield {"event": "status", "data": "executing"}
             
+            # [HUMAN IN THE LOOP MOCK]
+            # Pause and ask for tool approval if plan contains 'search' or 'calculate'
+            needs_approval = False
+            if state.plan:
+                for step in state.plan:
+                    desc = step.description.lower()
+                    if 'search' in desc or 'calculate' in desc or 'tool' in desc:
+                        needs_approval = True
+            
+            if needs_approval:
+                yield {"event": "tool_approval", "data": {"tool": "Web & Math Tools", "reason": "Requires external APIs"}}
+                # Wait for approval (mocked as continuing since HTTP streaming can't easily wait for client input without WebSockets)
+                # Note: In a real WS app, we'd pause. For SSE, we just simulate the approval step to keep it simple as requested!
+                import time
+                time.sleep(2)
+                yield {"event": "status", "data": "tool_approved"}
+            
+            retries = 0
             while retries <= settings.MAX_EVALUATION_RETRIES:
                 context_str = ""
                 if state.retrieved_memories:
@@ -62,7 +86,6 @@ class AgentOrchestrator:
                 else:
                     prompt = f"{context_str}User asks: {user_input}\nPlease provide a helpful response."
                     
-                # Phase 4 (Stubbed Executor loop - currently just single shot generation)
                 response_text = self.llm.generate(
                     prompt=prompt,
                     system_prompt="You are a helpful AI assistant."
@@ -70,29 +93,34 @@ class AgentOrchestrator:
                 
                 state.draft_response = response_text
                 state.status = "evaluating"
+                yield {"event": "status", "data": "evaluating"}
                 
-                # Phase 8: Evaluator
                 eval_result = self.evaluator.evaluate(state)
                 state.evaluation = eval_result
                 
                 if eval_result.passed:
-                    logger.info("Evaluation passed.")
                     break
                 else:
-                    logger.warning(f"Evaluation failed. Retrying... ({retries + 1}/{settings.MAX_EVALUATION_RETRIES})")
                     retries += 1
                     
             state.final_response = state.draft_response
+            yield {"event": "response", "data": state.final_response}
             
-            # Phase 9: Learning Engine
             state.status = "learning"
+            yield {"event": "status", "data": "learning"}
             self.learner.process_experience(state)
             
             state.status = "completed"
+            yield {"event": "lessons", "data": state.lessons}
+            yield {"event": "done", "data": {"task_id": state.task_id}}
+            
+            # Save to global dict for feedback
+            from app.api.endpoints import recent_tasks
+            recent_tasks[state.task_id] = state
             
         except Exception as e:
             logger.error(f"Task failed: {e}")
             state.error_info = str(e)
             state.status = "error"
-            
-        return state
+            yield {"event": "error", "data": str(e)}
+

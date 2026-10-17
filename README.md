@@ -1,5 +1,10 @@
 # Self-Learning AI Agent Workspace
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Available%20Online-E60000?style=for-the-badge&logo=googlechrome&logoColor=white)](https://debanshu17.github.io/self-learning-ai-agent/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Debanshu17/self-learning-ai-agent)
+
+🌐 **Live Web Application:** [https://debanshu17.github.io/self-learning-ai-agent/](https://debanshu17.github.io/self-learning-ai-agent/)
+
 An autonomous, self-improving AI agent workspace that bridges the gap between static LLMs and dynamic, agentic workflows. Instead of just answering questions, this agent can break complex goals into actionable plans, execute code and file tools in an iterative loop, verify its own work, and—most importantly—extract semantic lessons from its successes and failures to store in a long-term Memory Repository.
 
 ## 🚀 What It Does

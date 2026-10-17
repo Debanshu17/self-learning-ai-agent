@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
@@ -10,6 +11,7 @@ from app.agent.orchestrator import AgentOrchestrator
 from app.learning.document_ingestion import DocumentIngester
 import os
 import uuid
+import json
 
 router = APIRouter()
 
@@ -29,7 +31,7 @@ class FeedbackRequest(BaseModel):
     task_id: str
     feedback: str
 
-# In-memory store of recent states for feedback
+# In-memory store of recent tasks for feedback
 recent_tasks: Dict[str, Any] = {}
 
 @router.post("/chat")
@@ -46,6 +48,17 @@ def chat(request: ChatRequest, orchestrator: AgentOrchestrator = Depends(get_orc
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/stream/chat")
+async def stream_chat(request: ChatRequest, orchestrator: AgentOrchestrator = Depends(get_orchestrator)):
+    def event_generator():
+        try:
+            for event_dict in orchestrator.run_stream(request.message):
+                yield f"data: {json.dumps(event_dict)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'data': str(e)})}\n\n"
+            
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @router.post("/feedback")
 def submit_feedback(request: FeedbackRequest, orchestrator: AgentOrchestrator = Depends(get_orchestrator)):
     state = recent_tasks.get(request.task_id)
@@ -58,7 +71,7 @@ def submit_feedback(request: FeedbackRequest, orchestrator: AgentOrchestrator = 
 @router.get("/history")
 def get_history():
     # Return recent tasks from memory
-    return {"tasks": list(recent_tasks.values())}
+    return {"tasks": [{"id": k, "prompt": v.user_input, "response": v.final_response} for k, v in recent_tasks.items()]}
 
 @router.get("/knowledge")
 def get_knowledge(orchestrator: AgentOrchestrator = Depends(get_orchestrator)):
